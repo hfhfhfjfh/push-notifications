@@ -55,9 +55,7 @@ jobs:
             const message = {
               notification: {
                 title: title,
-                body: body,
-                icon: 'ic_notification', // Android notification icon
-                sound: 'default'
+                body: body
               },
               data: {
                 type: 'team_ping',
@@ -69,7 +67,9 @@ jobs:
                   channelId: 'team_notifications',
                   priority: 'high',
                   defaultSound: true,
-                  defaultVibrateTimings: true
+                  defaultVibrateTimings: true,
+                  icon: 'ic_launcher',
+                  sound: 'default'
                 }
               },
               tokens: tokens
