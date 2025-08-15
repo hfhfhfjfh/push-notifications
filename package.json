@@ -1,0 +1,13 @@
+{
+  "name": "send-fcm-notifications",
+  "version": "1.0.0",
+  "description": "Script to send Firebase Cloud Messaging notifications via GitHub Actions",
+  "main": "send-fcm.js",
+  "scripts": {
+    "start": "node send-fcm.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}
