@@ -1,118 +1,130 @@
 name: Send FCM Notifications
 
+Triggered by repository_dispatch from Android app
+
 on:
-  repository_dispatch:
-    types: [send-ping]
+repository_dispatch:
+types: [send-ping]
 
 jobs:
-  send-notifications:
-    runs-on: ubuntu-latest
+send-notifications:
+runs-on: ubuntu-latest
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+steps:  
+- name: Checkout repository  
+  uses: actions/checkout@v4  
+    
+- name: Setup Node.js  
+  uses: actions/setup-node@v4  
+  with:  
+    node-version: '18'  
+      
+- name: Install dependencies  
+  run: |  
+    npm init -y  
+    npm install firebase-admin  
+      
+- name: Create FCM service script  
+  run: |  
+    cat > send-fcm.js << 'EOF'  
+    const admin = require('firebase-admin');  
+      
+    // Initialize Firebase Admin SDK  
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);  
+      
+    admin.initializeApp({  
+      credential: admin.credential.cert(serviceAccount)  
+    });  
+      
+    async function sendNotifications() {  
+      try {  
+        // Get data from repository_dispatch payload  
+        const tokens = JSON.parse(process.env.FCM_TOKENS);  
+        const title = process.env.NOTIFICATION_TITLE;  
+        const body = process.env.NOTIFICATION_BODY;  
+          
+        console.log(`Sending notifications to ${tokens.length} devices`);  
+        console.log(`Title: ${title}`);  
+        console.log(`Body: ${body}`);  
+          
+        if (tokens.length === 0) {  
+          console.log('No tokens provided');  
+          return;  
+        }  
+          
+        // Prepare the message  
+        const message = {  
+          notification: {  
+            title: title,  
+            body: body  
+          },  
+          data: {  
+            type: 'team_ping',  
+            timestamp: Date.now().toString(),  
+            action: 'open_mining'  
+          },  
+          android: {  
+            notification: {  
+              channelId: 'team_notifications',  
+              priority: 'high',  
+              defaultSound: true,  
+              defaultVibrateTimings: true,  
+              icon: 'ic_launcher',  
+              sound: 'default'  
+            }  
+          },  
+          tokens: tokens  
+        };  
+          
+        // Send to multiple devices  
+        const response = await admin.messaging().sendEachForMulticast(message);  
+          
+        console.log(`Successfully sent: ${response.successCount}`);  
+        console.log(`Failed: ${response.failureCount}`);  
+          
+        // Log any failures  
+        if (response.failureCount > 0) {  
+          response.responses.forEach((resp, idx) => {  
+            if (!resp.success) {  
+              console.error(`Failed to send to token ${idx}: ${resp.error}`);  
+            }  
+          });  
+        }  
+          
+        // Clean up invalid tokens (optional)  
+        const invalidTokens = [];  
+        response.responses.forEach((resp, idx) => {  
+          if (!resp.success &&   
+              (resp.error.code === 'messaging/registration-token-not-registered' ||  
+               resp.error.code === 'messaging/invalid-registration-token')) {  
+            invalidTokens.push(tokens[idx]);  
+          }  
+        });  
+          
+        if (invalidTokens.length > 0) {  
+          console.log(`Invalid tokens found: ${invalidTokens.length}`);  
+          // You could implement cleanup logic here  
+        }  
+          
+      } catch (error) {  
+        console.error('Error sending notifications:', error);  
+        process.exit(1);  
+      }  
+    }  
+      
+    sendNotifications();  
+    EOF  
+      
+- name: Send FCM Notifications  
+  env:  
+    FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}  
+    FCM_TOKENS: ${{ toJson(github.event.client_payload.tokens) }}  
+    NOTIFICATION_TITLE: ${{ github.event.client_payload.title }}  
+    NOTIFICATION_BODY: ${{ github.event.client_payload.body }}  
+  run: node send-fcm.js  
+    
+- name: Log completion  
+  run: |  
+    echo "Notification job completed at $(date)"  
+    echo "Tokens processed: $(echo '${{ toJson(github.event.client_payload.tokens) }}' | jq length)"
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Create FCM service script
-      run: |
-        cat > send-fcm.js << 'EOF'
-        const admin = require('firebase-admin');
-
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount)
-        });
-
-        async function sendNotifications() {
-          try {
-            const tokens = JSON.parse(process.env.FCM_TOKENS);
-            const title = process.env.NOTIFICATION_TITLE;
-            const body = process.env.NOTIFICATION_BODY;
-
-            console.log(`Sending notifications to ${tokens.length} devices`);
-            console.log(`Title: ${title}`);
-            console.log(`Body: ${body}`);
-
-            if (tokens.length === 0) {
-              console.log('No tokens provided');
-              return;
-            }
-
-            const message = {
-              notification: { title, body },
-              data: {
-                type: 'team_ping',
-                timestamp: Date.now().toString(),
-                action: 'open_mining'
-              },
-              android: {
-                notification: {
-                  channelId: 'team_notifications',
-                  priority: 'high',
-                  defaultSound: true,
-                  defaultVibrateTimings: true,
-                  icon: 'ic_launcher',
-                  sound: 'default'
-                }
-              },
-              tokens
-            };
-
-            const response = await admin.messaging().sendEachForMulticast(message);
-
-            console.log(`Successfully sent: ${response.successCount}`);
-            console.log(`Failed: ${response.failureCount}`);
-
-            if (response.failureCount > 0) {
-              response.responses.forEach((resp, idx) => {
-                if (!resp.success) {
-                  console.error(`Failed to send to token ${idx}: ${resp.error}`);
-                }
-              });
-            }
-
-            const invalidTokens = [];
-            response.responses.forEach((resp, idx) => {
-              if (
-                !resp.success &&
-                (resp.error.code === 'messaging/registration-token-not-registered' ||
-                 resp.error.code === 'messaging/invalid-registration-token')
-              ) {
-                invalidTokens.push(tokens[idx]);
-              }
-            });
-
-            if (invalidTokens.length > 0) {
-              console.log(`Invalid tokens found: ${invalidTokens.length}`);
-            }
-
-          } catch (error) {
-            console.error('Error sending notifications:', error);
-            process.exit(1);
-          }
-        }
-
-        sendNotifications();
-        EOF
-
-    - name: Send FCM Notifications
-      env:
-        FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        FCM_TOKENS: ${{ toJson(github.event.client_payload.tokens) }}
-        NOTIFICATION_TITLE: ${{ github.event.client_payload.title }}
-        NOTIFICATION_BODY: ${{ github.event.client_payload.body }}
-      run: node send-fcm.js
-
-    - name: Log completion
-      run: |
-        echo "Notification job completed at $(date)"
-        echo "Tokens processed: $(echo '${{ toJson(github.event.client_payload.tokens) }}' | jq length)"
