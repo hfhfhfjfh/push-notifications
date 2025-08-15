@@ -1,4 +1,3 @@
-# .github/workflows/send-notifications.yml
 name: Send FCM Notifications
 
 # Triggered by repository_dispatch from Android app
